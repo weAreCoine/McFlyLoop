@@ -34,7 +34,7 @@
 
 ## Overview
 
-- **Type:** CLI orchestrator (Node ≥ 24, TypeScript, ESM) for multi-agent TDD loops defined in `loops/*.yaml`. It spawns one agent session per loop step, re-executes each step's mechanical exit checks (`done_when`) itself, and owns state transitions and phase-boundary git snapshots. Design phase: `src/` holds a placeholder entrypoint only.
+- **Type:** CLI orchestrator (Node ≥ 24, TypeScript, ESM) for multi-agent TDD loops defined in `loops/*.yaml`. It spawns one agent session per loop step, re-executes each step's mechanical exit checks (`done_when`) itself, and owns state transitions and phase-boundary git snapshots. Implementation started: the `mcfly` binary (commander entrypoint + `fly` scaffold subcommand, COINE-65) is the first feature; only the Controller layer exists so far.
 - **Primary library / framework:** `@anthropic-ai/claude-agent-sdk` for driving design-side agent sessions (chosen over the raw Messages API — the loops assume harness semantics: tools, permissions, session state). `zod` validates every external boundary. No UI framework — the View is terminal output.
 - **Secrets boundary:** the orchestrator holds no provider credentials. Each harness CLI it spawns authenticates itself outside this repo. No secret may appear in source, env files, `loops/`, `.ai/plans/` artifacts, or orchestrator logs.
 
@@ -49,6 +49,7 @@ Pinned from the manifest:
 | Build tool      | tsc (`tsconfig.build.json`) | 6.0.3 | installed |
 | Dev runner      | tsx | 4.23.12 | installed |
 | Agent sessions  | @anthropic-ai/claude-agent-sdk | 0.3.246 | installed — 0.x, minor-pinned (`^0.3.246`) |
+| CLI framework   | commander | 15.0.0 | installed — exact pin (approved in COINE-65) |
 | Subprocess      | execa | 10.0.1 | installed |
 | Git             | simple-git | 3.36.0 | installed |
 | YAML parsing    | yaml | 2.9.0 | installed |
@@ -154,7 +155,7 @@ reconstructing it.
 
 ## Testing
 
-- Tests live in `tests/`, mirroring `src/`: `src/<path>/<unit>.ts` → `tests/<path>/<unit>.test.ts` (current example: `src/main.ts` → `tests/main.test.ts`).
+- Tests live in `tests/`, mirroring `src/`: `src/<path>/<unit>.ts` → `tests/<path>/<unit>.test.ts` (current example: `src/controller/fly.ts` → `tests/controller/fly.test.ts`; `tests/main.test.ts` is the subprocess e2e for the entrypoint and imports nothing from `src/`).
 - Priority units: the Service layer (loop parsing, state machine, check running, prompt composition) and the Client wrappers (error mapping, schema validation) — they match the high-target rows in `CLAUDE.md § Coverage Targets`.
 - Excluded from coverage: type-only files (`src/reset.d.ts`) and third-party internals — matches `CLAUDE.md` "What NOT to Test".
 - **Project floor:** 90% — must equal the **Project floor** row in `CLAUDE.md § Coverage Targets` (Contract §3).
@@ -176,12 +177,13 @@ reconstructing it.
   |----------------------------|----------|-------|
   | Model                      | (future) `src/model/` | loop/outcome types, zod schemas, state-machine types |
   | View                       | (future) `src/view/`  | terminal rendering of runs and reports — no logic, no I/O beyond output |
-  | Controller (orchestration) | (future) `src/controller/` | CLI command handlers: argv → Service calls → View |
+  | Controller (orchestration) | `src/controller/` | CLI command handlers: argv → Service calls → View |
   | Service                    | (future) `src/service/` | orchestration core: loop runner, state machine, check runner, prompt composition |
   | Client (transport)         | (future) `src/client/` | one wrapper per external system: agent sessions (SDK), subprocesses (execa), git (simple-git) |
 
   Dependency direction `View → Controller → Service → Client → backend`; never skip or invert an existing layer.
-  Today `src/` holds only the placeholder `main.ts`; each layer directory materializes with the first feature that needs it.
+  Today `src/` holds `main.ts` (commander entrypoint) and `src/controller/` (first materialized layer, `fly.ts`);
+  the remaining layer directories materialize with the first feature that needs them.
 
 - **File-placement rule:** by layer role. One Client per external system (agent session, subprocess, git) — never merge them. Business logic never enters `src/client/`. A new file goes in the directory of the layer its plan assigns; no assigned layer and no sibling → STOP and ask.
 - **Import alias:** none — relative ESM imports, always with the `.js` extension (NodeNext).

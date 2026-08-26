@@ -9,8 +9,9 @@ and is called back only when it ends. Everything between those two moments —
 session spawning, exit-condition checking, state transitions, phase-boundary
 snapshots — is owned by a non-LLM program, not by the models themselves.
 
-**Status: design phase.** The loop syntax and its safety analysis exist; the
-orchestrator code does not yet.
+**Status: early implementation.** The loop syntax and its safety analysis
+exist; orchestrator code has started with the `mcfly` CLI scaffold — the
+`fly` subcommand is the first implemented feature (COINE-65).
 
 ## Concept
 
@@ -43,7 +44,7 @@ loops/                  Loop definitions
   pipeline_loop.yaml    Reference loop (5-step TDD pipeline with gate)
   prompts/              Per-role prompt files referenced by the loops
 base_loop.yaml          Initial syntax sketch, kept for reference
-src/                    Orchestrator source (TypeScript, placeholder for now)
+src/                    Orchestrator source — `mcfly` CLI entrypoint + Controller layer
 tests/                  Vitest test suite
 ```
 
