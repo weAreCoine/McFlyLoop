@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/icon.png" alt="McFly Loop — pixel-art DeLorean icon" width="160">
+</p>
+
 # McFly Loop
 
 A deterministic orchestrator for multi-agent TDD loops: the human starts a run
