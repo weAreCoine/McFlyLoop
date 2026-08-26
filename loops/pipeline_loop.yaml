@@ -1,0 +1,148 @@
+name: Pipeline Loop
+description: >-
+  TDD loop with three design-side roles on three different model tiers
+  (Designer, Test-Writer, Verifier) plus an external implementer. Every
+  phase is interactive and runs in a fresh session; a gate sits between
+  tests and implementation: without APPROVED, no code gets written.
+last_update: 2026-08-26
+created_by: Luca Barbi
+source: https://app.notion.com/p/coine/Pipeline-Loop-3c8b99010086817ab86ff4cdc5daff34
+
+# Loop-wide contract, applies to every step.
+session: fresh_per_step  # the Verifier must judge tests from artifacts, not from having watched them being written
+rules:
+  - Whoever writes tests never writes application code; the implementer never touches tests.
+  - Every phase boundary is a file in .ai/plans/ — if it is not in the artifact, the next phase does not know it.
+  - "Provenance before status: a feature with a {feature}.adr.md next to it is an autopilot flight; its artifacts are inert here and must never be adopted into the pipeline, whatever their status says."
+  - A role whose session model does not match its roster line stops, unless a substitution for that role is registered in the roster by the user.
+
+# Each step's session receives rules + goal + done_when alongside its prompt.
+# prompt is a path to a Markdown file, relative to this file; prompts carry
+# only the behavior those checks cannot express.
+steps:
+  - name: design
+    role: Designer
+    input: feature requirement + existing codebase
+    goal: A testplan the Test-Writer can transcribe without taking a single decision.
+    prompt: prompts/designer.md
+    done_when:
+      ready:
+        - ".ai/plans/{feature}.testplan.md exists and its state line reads READY"
+        - every unit in the signatures section has name, input types, return type and error types — none marked as open or left to the implementation
+        - every inventory line has arrange, act and assert filled with exact values — zero TBD, zero ranges or examples where an exact value is expected
+        - the blast-radius section is present, listing the impacted existing tests or the explicit line "none"
+        - the session diff touches only .ai/plans/ — no test file, no application file
+    model: Claude Fable 5  # top tier Anthropic
+    harness: Claude Code
+    next:
+      ready: write_tests  # handed over in a new session
+
+  - name: write_tests
+    role: Test-Writer
+    input: ".ai/plans/{feature}.testplan.md in state READY"
+    goal: Every inventory line exists as a RED test — or the exact blocking line is named.
+    prompt: prompts/test_writer.md
+    done_when:
+      red_verified:
+        - test count equals inventory line count, and each test name matches its line verbatim
+        - the focused run output is pasted in the Log and every new test fails
+        - no failure in the run output is an import, setup or syntax error — each failure asserts on missing behavior
+        - the session diff touches only test files — zero changes to application code and to the inventory
+        - the testplan state line reads RED
+        - the Log has a deviations section, listing each minimal deviation or the explicit line "none"
+      testplan_ambiguous_or_unimplementable:
+        - the Log contains at least one blocking note, each naming the exact inventory line or signature concerned
+        - the testplan state line still reads READY — the Test-Writer never rewrites the plan
+    model: Claude Sonnet 5  # cost-efficient tier Anthropic
+    harness: Claude Code
+    next:
+      red_verified: verify_gate
+      testplan_ambiguous_or_unimplementable: design
+
+  - name: verify_gate
+    role: Verifier
+    input: testplan in state RED + test code
+    goal: Exactly one verdict, with every check and every adjudication on the record.
+    prompt: prompts/verifier_gate.md
+    done_when:
+      approved:
+        - each of the six checks has an explicit PASS recorded in the Log
+        - every edit made to testplan or tests is covered by an adjudication note with its motivation — zero changes in the diff without one
+        - the testplan state line reads APPROVED
+        - ".ai/plans/{feature}.md exists and its signatures block is identical to the testplan's"
+      rejected:
+        - the testplan state line reads REJECTED(n), with n incremented by exactly one
+        - the Log contains at least one note, each naming the failed check and the specific inventory line or test
+        - "no .ai/plans/{feature}.md has been created"
+    model: Claude Opus 5  # reviewer tier Anthropic
+    harness: Claude Code
+    next:
+      approved: implement
+      rejected: write_tests  # at REJECTED(2) the next gate run escalates — see escalation.double_gate_rejection
+
+  - name: implement
+    role: Implementer
+    input: "approved plan .ai/plans/{feature}.md"
+    goal: Gated tests GREEN, and nothing outside the plan touched.
+    prompt: prompts/implementer.md
+    done_when:
+      green:
+        - the focused command on the gated tests exits 0 — every test that was RED at the gate now passes
+        - the full suite exits 0
+        - the typecheck exits with zero errors
+        - the session diff touches no test file and no file under .ai/plans/
+        - every new dependency in the manifest diff is listed in the plan — none otherwise
+    model: Codex  # external code-generation agent
+    harness: Codex CLI
+    next:
+      green: verify_review
+
+  - name: verify_review
+    role: Verifier
+    input: application code + plan
+    goal: Feature closed with every check on the record, or logic routed back as inventory lines — never patched by hand.
+    prompt: prompts/verifier_review.md
+    done_when:
+      done:
+        - the five ordered checks each have a recorded verdict, in order — full suite exit 0, typecheck zero errors, every checklist item with an explicit pass, lint exit 0, format:check exit 0 without mutating files
+        - every fix applied directly is listed in the Log and falls in the trivial classes — formatting, naming, import order — nothing else in the diff
+        - test-infrastructure findings, if any, are in the Log with a test-only diff and zero behavior change
+        - the documentation decision line is present with one of new-resource, update or none — plus the reason
+        - the plan state line reads DONE with today's date
+      logic_issue:
+        - each logic finding exists as one or more new inventory lines appended to the testplan
+        - the Log links every finding to its new lines
+        - the plan state line does not read DONE
+    model: Claude Opus 5  # reviewer tier; the Designer's model when an escalation trigger fires
+    harness: Claude Code
+    next:
+      done: end  # feature closed; a defect emerging after review fires the post-mortem (escalation trigger 3)
+      logic_issue: write_tests  # as new inventory lines
+
+# The Designer's model is scarce: spend it only where a weaker model would
+# decide worse. When a trigger fires it must be declared explicitly, so the
+# user switches model or session.
+escalation:
+  scarce_model: Claude Fable 5  # the Designer's tier
+  triggers:
+    - id: architectural_surface
+      when: the feature introduces a new pattern, materializes a layer for the first time, or changes a dependency direction
+      effect: verify_review also runs on the Designer's model
+    - id: double_gate_rejection
+      when: the same feature reaches REJECTED(2)
+      effect: verify_gate re-runs on the Designer's model, with the previous rejection notes as input
+    - id: post_review_bug
+      when: a defect emerges after verify_review has passed
+      effect: the Designer's model runs the post-mortem — which phase let it through, which inventory lines were missing, whether the contract must change
+    - id: adr_and_init
+      when: /init-architecture or ADR writing
+      effect: always runs on the Designer's model
+  substitution: >-
+    When the Designer's tier is substituted the ladder has no top step left:
+    triggers do not lapse, they become user decisions at a declared cost.
+    Triggers 1-3 still fire and the phase runs on the substitute, recording
+    both the trigger and the substitution in the Log; trigger 4 is the one
+    to postpone when postponing is possible. If the substitute is the
+    Verifier's own model, the gate stops being independent — the same model
+    wrote the reference and now checks the tests against it — and an
+    APPROVED reached that way counts as weaker evidence than normal.

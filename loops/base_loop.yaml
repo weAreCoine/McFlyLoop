@@ -1,0 +1,16 @@
+name: Base Loop
+last_update: 2026-08-26
+created_by: Luca Barbi
+steps:
+  - name: test_plan
+    input: ADR or implementation plan
+    prompt: You are test planner bla bla bla
+    output: a test plan
+    model: Opus
+    harnes: Claude Code
+  - name: test_plan
+    input: ADR or implementation plan
+    prompt: You are test planner bla bla bla
+    output: a test plan
+    model: Opus
+    harnes: Claude Code
