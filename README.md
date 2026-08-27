@@ -43,7 +43,6 @@ code is written, and an escalation policy for the scarce top-tier model.
 loops/                  Loop definitions
   pipeline_loop.yaml    Reference loop (5-step TDD pipeline with gate)
   prompts/              Per-role prompt files referenced by the loops
-base_loop.yaml          Initial syntax sketch, kept for reference
 src/                    Orchestrator source — `mcfly` CLI entrypoint + Controller layer
 tests/                  Vitest test suite
 ```
